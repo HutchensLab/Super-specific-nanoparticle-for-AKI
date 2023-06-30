@@ -1,0 +1,18 @@
+mouse,sex,age_wk,cagenum,treatment,dose_SC,dosing scheme,tech_E,tech_M,Avg
+17,male,11,C-1,saline,,5 mL/kg,30,26,28
+1,male,8,C-12,saline,,5 mL/kg,107,103,105
+2,male,9,C-7,saline,,5 mL/kg,55,53,54
+3,male,10,C-5,saline,,5 mL/kg,130,156,143
+4,male,11,C-12,saline,,5 mL/kg,120,111,115.5
+5,male,8,C-12,Dex,38 umole/kg (15 mg/kg),3 mg/mL @ 5 mL/kg,101,107,104
+6,male,9,C-7,Dex,38 umole/kg (15 mg/kg),3 mg/mL @ 5 mL/kg,150,164,157
+7,male,10,C-5,Dex,38 umole/kg (15 mg/kg),3 mg/mL @ 5 mL/kg,128,141,134.5
+8,male,11,C-12,Dex,38 umole/kg (15 mg/kg),3 mg/mL @ 5 mL/kg,61,49,55
+9,male,9,C-8,Dex-H dot,11 umole/kg,2.2 mM @ 5 mL/kg,58,44,51
+10,male,9,C-8,Dex-H dot,11 umole/kg,2.2 mM @ 5 mL/kg,89,86,87.5
+11,male,10,C-5,Dex-H dot,11 umole/kg,2.2 mM @ 5 mL/kg,145,139,142
+12,male,11,C-1,Dex-H dot,11 umole/kg,2.2 mM @ 5 mL/kg,103,89,96
+13,male,9,C-8,Cil-Dex H dot,12 umole/kg,2.4 mM @ 5 mL/kg,37,26,31.5
+14,male,9,C-8,Cil-Dex H dot,12 umole/kg,2.4 mM @ 5 mL/kg,57,41,49
+15,male,10,C-5,Cil-Dex H dot,12 umole/kg,2.4 mM @ 5 mL/kg,85,71,78
+16,male,11,C-1,Cil-Dex H dot,12 umole/kg,2.4 mM @ 5 mL/kg,153,161,157
