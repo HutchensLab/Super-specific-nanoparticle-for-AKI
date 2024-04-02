@@ -1,0 +1,313 @@
+---
+title: "Toxicology study analysis"
+author: "Mike Hutchens"
+date: "2024-04-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+#Load the necessary packages
+```{r echo=FALSE, warnings=FALSE, include=FALSE}
+EnvPrep<-function (){
+  library(tidyverse)
+  library(ggpubr)
+  library(Hmisc)
+  library(ggplot2)
+  library(ggprism)
+  library(patchwork)
+  library(scales)
+  library(lme4)
+  library(lmerTest)
+  library(car)
+  library(MASS)
+  library(outliers)
+  library(EnvStats)
+  library(ggsci)
+  library(effects)
+  library(emmeans)
+  select<-dplyr::select
+}
+
+EnvPrep()
+```
+
+
+#Pull in the data and structure it for analysis.
+
+```{r get data}
+#get the data
+tst<-read_csv("hdot_tst.csv")
+wbc_all<-read_csv("hdot_tox_wbc_all_vals.csv")
+#pivot the data
+tst.long<-tst%>%pivot_longer(cols=8:10,names_to="tech", values_to="tst")
+wbc.all.long<-wbc_all%>%pivot_longer(cols=6:11,names_to=c("hr","rep"),names_prefix = "r",names_sep="_",values_to="wbc")
+#ensure that R sees the categoricals as categorical.
+wbc.all.long<-wbc.all.long%>%mutate(treatment=factor(treatment))
+tst.long<-tst.long%>%mutate(mouse=as.factor(mouse))
+tst.long<-tst.long%>%mutate(sex=as.factor(sex))
+tst.long<-tst.long%>%mutate(cagenum=as.factor(cagenum))
+tst.long<-tst.long%>%mutate(tech=as.factor(tech))
+tx<-tst.long$treatment
+```
+
+
+# Fit and analyse the WBC data
+
+```{r}
+
+#use car and MASS to determine the distribution best fitting the data.  
+#WBC
+qqp(wbc.all.long$wbc,"norm")
+
+```
+
+There are outliers (we knew that).  We do outlier detection using z-scores, Grubb's test, and Rosner's test.
+
+```{r}
+#so lets do outlier detection here.
+wbc.all.long<-wbc.all.long%>%mutate(wbc.z=round(abs(scale(wbc)),1))
+grubbs.test(wbc.all.long$wbc) #there is at least one grubbs outlier
+rosnerTest(wbc.all.long$wbc, k = 15)$all.stats #this identifies 6 outliers, >=36.3  Those values are at z>=2.5, 
+#which is a conservative cutoff.  Let's remove all values with z>2.5 for further analysis.
+wbc.all.long.filt<-wbc.all.long%>%filter((wbc.z<2.5)&(wbc.z>-2.5))
+
+```
+
+# Results of outlier detection
+The Rosner test identifies 6 outliers, all >=36.3  Those values are at z>=2.5, which is a conservative cutoff.  Let's remove all values with z>2.5 for further analysis.
+
+#Examine the data distribution
+```{r}
+
+#find the distribution which fits all the remaining values best
+qqp(wbc.all.long.filt$wbc,"norm")
+qqp(wbc.all.long.filt$wbc,"lnorm")
+nbinom <- fitdistr(round((wbc.all.long.filt$wbc),0), "Negative Binomial")
+qqp(wbc.all.long.filt$wbc, "nbinom", size = nbinom$estimate[[1]], mu = nbinom$estimate[[2]])
+poisson <- fitdistr(round((wbc.all.long.filt$wbc),0), "Poisson")
+qqp(wbc.all.long.filt$wbc, "pois", lambda=poisson$estimate, main="Poisson model")
+gamma <- fitdistr(round((wbc.all.long.filt$wbc),0),"gamma")
+qqp(wbc.all.long.filt$wbc, "gamma", shape = gamma$estimate[[1]], rate = gamma$estimate[[2]])
+```
+
+
+
+Following outlier removal, WBC data is best fit with a normal distribution now, suggesting outlier removal was appropriate
+
+
+
+# Preliminary statistical analysis
+```{r}
+#fix some datatype problems
+wbc.all.long.filt<-wbc.all.long.filt%>%mutate(hr=as.integer(hr))
+wbc.all.long.filt<-wbc.all.long.filt%>%mutate(rep=as.integer(rep))
+wbc.all.long.filt<-wbc.all.long.filt%>%mutate(treatment=factor(treatment,levels=c("saline", "Dex","Dex-H dot","Cil-Dex H dot")))
+wbc.all.long.filt<-wbc.all.long.filt%>%mutate(treatment=relevel(treatment, ref="Dex"))
+
+t<-wbc.all.long.filt%>%filter((treatment=="saline")|(treatment=="Dex"))%>%filter(hr==0)
+t.test(wbc~treatment, data=t)
+```
+
+
+Although nonsignificant, the Dex group WBC trends higher at time zero with p=0.2; this might obscure effect.
+therefore let's look at delta -- the change in WBC from time 0 to 4h, 0 to 8, and 4 to 8h.
+
+```{r, warnings=FALSE}
+wbc.all.long.filt<-wbc.all.long.filt%>%group_by(mouse,rep)%>%mutate(delta=wbc-lag(wbc,order_by=hr))
+wbc.all.long.filt<-wbc.all.long.filt%>%group_by(mouse,rep)%>%mutate(delta8=wbc-lag(wbc,n=2,order_by=hr))
+t<-wbc.all.long.filt%>%filter((treatment=="saline")|(treatment=="Dex"))%>%filter(!is.na(delta))%>%filter(hr==4)
+t.test(delta~treatment, data=t)
+t<-wbc.all.long.filt%>%filter((treatment=="saline")|(treatment=="Dex"))%>%filter(!is.na(delta))%>%filter(hr==8)
+t.test(delta~treatment, data=t)
+t<-wbc.all.long.filt%>%filter((treatment=="saline")|(treatment=="Dex"))%>%filter(!is.na(delta8))
+t.test(delta~treatment, data=t)
+```
+
+The maximum difference between Dex and saline was at hour 4.  The bidirectional nature of Dex effect (WBC down, then up) does obscure the difference, as the magnitude of difference is reduced at 8 hours, both 8h-4h and 8h-0h.  Therefore, to determine the relative effect of Cil/Dex/H-Dot, next analysis focuses on the 0-4 difference.  Next, simple linear regression.
+
+
+## Next plot with simple linear regression
+```{r, warnings=FALSE}
+t<-wbc.all.long.filt%>%filter(hr!=8)
+ggplot(t,aes(x=hr,y=wbc, col=treatment))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+```
+
+Perhaps the simplest way to do this analysis is do an ANOVA on the 4h delta...
+
+## Perform ANOVA 
+```{r, warnings=FALSE}
+t<-wbc.all.long.filt%>%filter(hr!=8)
+#here is the model
+anova.a<-aov(delta~treatment, data=t) #AIC 338
+summary(anova.a)
+TukeyHSD(anova.a)
+#tt<-pairwise.t.test(dose_df$GFR, dose_df$dose, p.adj = "bonf")
+#tt
+
+```
+
+
+
+## Therefore:
+
+I think from this data we can conclude that <b> with respect to native Dex, Cil/Dex/H-Dot results in significantly less acute change in WBC relative to Dex (p=0.003, ANOVA) </b>.  
+
+## Plot the WBC data
+```{r, echo=FALSE ,warnings=FALSE}
+
+wp=0.1
+wt=0.06
+ggplot(t, aes(x=treatment, y=delta, group=treatment)) + 
+  geom_boxplot()+
+  ggtitle("Change in WBC counts")+
+  xlab("Treatment")+
+  ylab("Change in WBC from 0 to 4h after injection")
+
+```
+Since we did 3 measurements (0, 4, and 8 hours) repeated measurement is ideal.  Since ANOVA will drop data which is complete, we will need to use linear mixed models to do that.
+
+```{r, echo=FALSE ,warnings=FALSE}
+#compute the delta from baseline for all measurements
+
+wbc.all.long.filt<-wbc.all.long.filt%>%group_by(mouse,hr)%>%mutate(mWBC=mean(wbc,na.rm=TRUE))
+wbc.all.long.filt<-wbc.all.long.filt%>%group_by(mouse)%>%mutate(delta_b=mWBC-mWBC[hr==0])
+
+t<-wbc.all.long.filt%>%group_by(mouse, hr)%>%dplyr::select(mouse,hr,cage,treatment,delta_b)%>%distinct()
+t<-t%>%mutate(cage=as.factor(cage))
+t<-t%>%mutate(mouse=as.factor(mouse))
+t<-t%>%mutate(hr=as.factor(hr))
+#mod<-lmer(delta_b~treatment*hr+(1|mouse),data=t)
+mod<-lm(delta_b~treatment*hr,data=t)
+summary(mod)
+
+emm_model <- emmeans(mod,~treatment|hr,level=0.9)
+emm_means<-print(emm_model)
+
+pairs_model<-pairs(emm_model, adjust="holm")
+confint_model<-confint(pairs_model)
+spairs<-summary(df<-summary(pairs_model))
+spairs
+
+```
+
+```{r, echo=FALSE, include=FALSE}
+#out<-t%>%filter(hr==4)%>%group_by(mouse)%>%summarise(treatment=treatment,m_delta_wbc=mean(delta, na.rm=TRUE))%>%distinct()
+#write_csv(out,"delta_wbc.csv")
+
+out_prism<-t%>%dplyr::select(mouse, treatment, hr, delta_b)%>%pivot_wider(names_from=hr, values_from=delta_b)
+write_csv(out_prism,"prism_delta_wbc_03232024.csv")
+```
+
+
+
+## TST data
+
+Let's plot this data first.
+
+```{r ,echo= FALSE, warnings=FALSE}
+tst.long.retainavg<-tst.long
+
+ggplot(filter(tst.long.retainavg,tech=="Avg"), aes(x=treatment,
+                                         y=tst , group=treatment, label=mouse, col=treatment))+
+  geom_boxplot()+
+  geom_point()+
+  xlab("Treatment")+
+  ylab("TST (Immobility time, sec)")+
+  theme(legend.position = "none")
+
+#ggsave("tst.tiff", dpi=300, units="in", width=3.5,height=3)
+
+```
+
+This data is suggestive, so let's see if it needs cleaning up and proceed with statistical analysis.
+
+```{r ,echo= FALSE, warnings=FALSE}
+#tst
+tst.long<-tst.long%>%mutate(treatment=factor(treatment,levels=c("saline", "Dex","Dex-H dot","Cil-Dex H dot"), ordered=FALSE))
+#remove the "avg" tech
+
+tst.long<-tst.long%>%filter(tech!="Avg")
+
+
+#z-scores, evaluate for outliers.  The max is slightly over 1.5.  Not really likely that outliers are driving effect or lack of effect.  We will follow the same methodology we did above nonetheless.
+tst.long<-tst.long%>%mutate(tst.z=round(abs(scale(tst)),1))
+grubbs.test(tst.long$tst) #p value = 1.0.  Which is to say, there are not any outliers and we should stop looking.
+```
+
+
+There are no outliers in the TST data, lets see what distribution it fits best.
+
+
+```{r ,echo= FALSE, warnings=FALSE}
+#tst best fit is normal distribution
+qqp(tst.long$tst,"norm")
+qqp(tst.long$tst,"lnorm")
+nbinom <- fitdistr(round((tst.long$tst),0), "Negative Binomial")
+qqp(tst.long$tst, "nbinom", size = nbinom$estimate[[1]], mu = nbinom$estimate[[2]])
+poisson <- fitdistr(round((tst.long$tst),0), "Poisson")
+qqp(tst.long$tst, "pois", lambda=poisson$estimate, main="Poisson model")
+gamma <- fitdistr(round((tst.long$tst),0),"gamma")
+qqp(tst.long$tst, "gamma", shape = gamma$estimate[[1]], rate = gamma$estimate[[2]])
+
+```
+
+The best fit is a normal distribution.  Let's start with ANOVA.
+
+
+```{r ,echo= FALSE, warnings=FALSE}
+t<-tst.long.retainavg%>%filter(tech=="Avg")
+#here is the model
+anova.b<-aov(tst~treatment, data=t) #AIC 338
+summary(anova.b)
+TukeyHSD(anova.b)
+
+```
+
+The ANOVA suggests there is no difference caused by treatment.  But given the plotted data, it's possible an effect is masked by variation the ANOVA cannot account for.  Let's try some linear mixed models.  
+
+
+```{r ,echo= FALSE, warnings=FALSE}
+modela<-lmer(tst~relevel(treatment,ref="Dex")+(1|cagenum/mouse)+age_wk+tech,REML=FALSE, data=tst.long) #AIC 323
+summary(modela)
+```
+
+AIC 323, not much variance by cage.
+
+```{r ,echo= FALSE, warnings=FALSE}
+#variance is almost all mouse, not cage.  Remove cage from the model.  Consider adding age.
+modelb<-lmer(tst~relevel(treatment,ref="Dex")+(1|mouse)+tech,REML=FALSE, data=tst.long) #AIC 320
+summary(modelb)
+```
+
+AIC 320, a better fit than the first model.
+
+```{r ,echo= FALSE, warnings=FALSE}
+modelc<-lmer(tst~relevel(treatment,ref="Dex")+(1|mouse)+age_wk+tech,REML=FALSE, data=tst.long) #AIC 322 same result.
+summary(modelc)
+```
+
+AIC 322, not better.  Results the same as above.  Let's see confidence intervals on the second model.
+
+```{r ,echo= FALSE, warnings=FALSE}
+confint (modelb, level=0.90)
+```
+
+
+## TST Conclusion
+
+
+Linear mixed models suggest that the data are a little confounded by technical and non-effect related biological variation, however the effect of drug is still not significant.  <b> Therefore we cautiously conclude that  data are suggestive that Cil/Dex/H-Dot may induce less depressive behavior than native Dex (with a -34 second change in immobility time, CI -89 seconds to +16 seconds) but that analysis does not support his conclusion </b> and additional experiments are justified.
+
+
+## Environment data
+
+```{r}
+sessionInfo()
+```
